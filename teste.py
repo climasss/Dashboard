@@ -130,10 +130,11 @@ if st.session_state.serial_conexao:
                         grafico_area.line_chart(df_grafico)
 
                     # CSV
-                    st.session_state.csv_dados = df_temp.to_csv(index=False).encode('utf-8')
+                    st.session_state.csv_dados = df_temp.to_csv(index=False, sep=';', encoding=('uft-8-sig').encode('utf-8')
             
             time.sleep(0.05)
             
         except Exception as e:
             st.error(f"Erro: {e}")
             break
+
