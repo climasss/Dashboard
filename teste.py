@@ -1,10 +1,8 @@
 import streamlit as st
 import serial
 import pandas as pd
-import serial.tools.list_ports
 import time
 from datetime import datetime
-import plotly.express as px  # <--- IMPORTAÇÃO DO GRÁFICO NOVO
 
 # Configuração da página
 st.set_page_config(page_title="Monitor Serial", layout="wide")
@@ -14,7 +12,6 @@ st.sidebar.title("Configurações")
 porta_usuario = st.sidebar.text_input("Porta Serial (ex: COM6):", value="COM6")
 btn_conectar = st.sidebar.button("Conectar Serial")
 
-# Layout do Topo
 col1, col2 = st.columns([1, 4])
 with col1:
     try:
@@ -25,15 +22,17 @@ with col2:
     st.title("📡 Monitoramento dos dados via LoRa CABIPAJA")
 
 # --- DEFINIÇÃO DAS COLUNAS ---
+# Hora + 6 Dados do Arduino + Intervalo = 8 Colunas
 colunas = [
-    "🕒 Hora",              # 0
-    "💨Velocidade",         # 1
-    "🌡️Temperatura motor",  # 2
-    "🌡️Temperatura CVT",    # 3
-    "🛰️Odometro",           # 4
-    "🚨Vibracao",           # 5
-    "🛰️Sinal LoRa",         # 6
-    "⏱️Intervalo (s)"      # 7
+    "🕒Hora",              # 0 (Gerado aqui)
+    "💨Velocidade",         # 1 (LoRa)
+    "🌡️Temperatura motor",  # 2 (LoRa)
+    "🌡️Temperatura CVT",    # 3 (LoRa)
+    "🛰️Odometro",           # 4 (LoRa)
+    "🚨Vibracao",           # 5 (LoRa)
+    "🛰️Sinal LoRa",         # 6 (LoRa)
+    "⏲RPM",                 # 7 (LoRa)
+    "⏱️Intervalo (s)"      # 8 (Gerado aqui)
 ]
 
 # Inicializa estados
@@ -74,7 +73,7 @@ st.download_button(
     mime="text/csv"
 )
 
-# --- LOOP DE LEITURA ---
+# --- LOOP DE LEITURA DIRETA ---
 if st.session_state.serial_conexao:
     ser = st.session_state.serial_conexao
     tempo_inicial = st.session_state.tempo_inicial
@@ -90,6 +89,7 @@ if st.session_state.serial_conexao:
                     linha_completa, buffer = buffer.split('\r\n', 1)
                     linha_limpa = linha_completa.strip()
 
+                    # Limpezas básicas
                     if not linha_limpa: continue
                     if linha_limpa.startswith(','): linha_limpa = linha_limpa[1:]
                     
@@ -100,49 +100,36 @@ if st.session_state.serial_conexao:
                     except ValueError:
                         continue 
 
-                    # Aceita apenas pacotes com 6 valores exatos
-                    if len(valores) == 6:
+                    # --- LÓGICA SIMPLIFICADA (SEM ZERO FILL) ---
+                    # Esperamos EXATAMENTE 7 valores do Arduino:
+                    # [Vel, TempM, TempC, Odo, RPM, Vibra, RSSI]
+                    
+                    if len(valores) == 7:
+                        # Gera dados de tempo
                         hora_atual = datetime.now().strftime("%H:%M:%S")
                         tempo_total = round(time.time() - tempo_inicial, 2)
-                        
+
+                        # Monta a linha direto: Hora + 7 Valores + Tempo
                         linha_tabela = [hora_atual] + valores + [tempo_total]
+                        
                         st.session_state.dados_recebidos.append(linha_tabela)
+                    
+                    # Se vier incompleto (ex: 5 dados), ele simplesmente ignora e espera o próximo pacote correto.
 
                 # --- ATUALIZAÇÃO VISUAL ---
                 df_temp = pd.DataFrame(st.session_state.dados_recebidos, columns=colunas)
                 
                 if not df_temp.empty:
-                    # 1. Tabela
+                    # Tabela Invertida (Mais recente no topo)
                     df_invertido = df_temp.iloc[::-1]
                     tabela_area.dataframe(df_invertido.head(10), use_container_width=True)
                     
-                    # 2. GRÁFICO AVANÇADO (PLOTLY)
+                    # Gráfico Completo
                     if variavel_selecionada and variavel_selecionada in df_temp.columns:
-                        
-                        # Cria o gráfico interativo
-                        fig = px.line(
-                            df_temp, 
-                            x="⏱️Intervalo (s)", 
-                            y=variavel_selecionada,
-                            title=f"Evolução: {variavel_selecionada}",
-                            markers=True, # Adiciona bolinhas nos pontos
-                            template="plotly_dark" # Tema escuro para combinar
-                        )
-                        
-                        # Personalização fina do visual
-                        fig.update_traces(line_color='#00CC96', line_width=2) # Cor verde Bajan
-                        fig.update_layout(
-                            height=400, # Altura do gráfico
-                            xaxis_title="Tempo decorrido (s)",
-                            yaxis_title=variavel_selecionada,
-                            margin=dict(l=20, r=20, t=40, b=20),
-                            hovermode="x unified" # Mostra linha vertical ao passar mouse
-                        )
-                        
-                        # Plota o gráfico no placeholder
-                        grafico_area.plotly_chart(fig, use_container_width=True)
+                        df_grafico = df_temp.set_index("⏱️Intervalo (s)")[[variavel_selecionada]]
+                        grafico_area.line_chart(df_grafico)
 
-                    # 3. CSV
+                    # CSV
                     st.session_state.csv_dados = df_temp.to_csv(index=False).encode('utf-8')
             
             time.sleep(0.05)
